@@ -15,11 +15,7 @@
 #include "disk.h"
 #include "inode.h"
 
-typedef struct file {
-    Disk *disk;
-    Inode *inode;
-    const char *path;
-} File;
+typedef struct file File;
 
 //Funcao para instalar um novo sistema de arquivos no S.O.
 int installMyFS ( void );

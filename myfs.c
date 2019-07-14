@@ -33,6 +33,13 @@ FSInfo const myfsInfo = {
     closeDir
 };
 
+struct file {
+    Disk *disk;
+    Inode *inode;
+    unsigned int blockSize;
+    unsigned int lastByteRead;
+};
+
 File *openFiles[MAX_FDS] = {};
 
 int installMyFS () {
@@ -43,6 +50,7 @@ int installMyFS () {
 int myfsIsIdle (Disk *disk) {
     for (int i = 0; i < MAX_FDS; i++) {
         File *file = openFiles[i];
+
         if (file != NULL && diskGetId(disk) == diskGetId(file->disk))
             return 0;
     }
@@ -51,30 +59,21 @@ int myfsIsIdle (Disk *disk) {
 }
 
 int formatDisk (Disk *disk, unsigned int blockSize) {
-    int numBlocks = -1;
-
     //TODO implementar formatDisk
 
-    return numBlocks;
+    return -1;
 }
 
 int openFile (Disk *disk, const char *path) {
-    int fd = -1;
-
-    File *file = malloc(sizeof(File));
-    file->disk = disk;
-
     //TODO implementar openFile
 
-    return fd;
+    return -1;
 }
 
 int readFile (int fd, char *buf, unsigned int nbytes) {
-    int numBytesRead = 0;
+    //TODO implementar readFile
 
-    //TODO implementar redFile
-
-    return numBytesRead;
+    return -1;
 }
 
 int writeFile (int fd, const char *buf, unsigned int nbytes) {
@@ -84,11 +83,15 @@ int writeFile (int fd, const char *buf, unsigned int nbytes) {
 }
 
 int closeFile (int fd) {
-    File *file = openFiles[fd];
-    if (file == NULL)
+    if(fd <= 0 || fd > MAX_FDS)
         return -1;
 
-    openFiles[fd] = NULL;
+    File *file = openFiles[fd];
+    if (!file)
+        return -1;
+
+    openFiles[fd-1] = NULL;
+    free(file->inode);
     free(file);
 
     return 0;
