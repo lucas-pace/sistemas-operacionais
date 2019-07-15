@@ -30,19 +30,19 @@
 int myfsSlot = -1;
 
 FSInfo const myfsInfo = {
-    1,
-    "myfs",
-    myfsIsIdle,
-    formatDisk,
-    openFile,
-    readFile,
-    writeFile,
-    closeFile,
-    openDir,
-    readDir,
-    link,
-    unlink,
-    closeDir
+        1,
+        "myfs",
+        myfsIsIdle,
+        formatDisk,
+        openFile,
+        readFile,
+        writeFile,
+        closeFile,
+        openDir,
+        readDir,
+        link,
+        unlink,
+        closeDir
 };
 
 struct file {
@@ -52,14 +52,23 @@ struct file {
     unsigned int lastByteRead;
 };
 
+struct file {
+    Disk *disk;
+    Inode *inode;
+    unsigned int blockSize;
+    unsigned int lastByteRead;
+};
+
+
+
 File *openFiles[MAX_FDS] = {};
 
-int installMyFS () {
+int installMyFS() {
     myfsSlot = vfsRegisterFS(&myfsInfo);
     return myfsSlot;
 }
 
-int myfsIsIdle (Disk *disk) {
+int myfsIsIdle(Disk *disk) {
     for (int i = 0; i < MAX_FDS; i++) {
         File *file = openFiles[i];
 
@@ -70,106 +79,149 @@ int myfsIsIdle (Disk *disk) {
     return 1;
 }
 
-int formatDisk (Disk *disk, unsigned int blockSize) {
-    //TODO implementar formatDisk
+int formatDisk(Disk *disk, unsigned int blockSize) {
     unsigned char super[DISK_SECTORDATASIZE] = {0};
     unsigned char freeSpace[DISK_SECTORDATASIZE] = {0};
-
     ul2char(blockSize, &super[SUPER_BLOCKSIZE]);
+    unsigned int numInodes = diskGetSize(disk) / blockSize / 8;
 
-    unsigned int numInodes = (diskGetSize(disk) / blockSize) / 8;
-
-    for(int i=1; i <= numInodes; i++) {
-
-        Inode* inode = inodeCreate(i, disk);
-        if(!inode)
+    for (int i = 1; i <= numInodes; i++) {
+        Inode *inode = inodeCreate(i, disk);
+        if (!inode)
             return -1;
         free(inode);
-
     }
 
     unsigned int freeSpaceSector = inodeAreaBeginSector() + numInodes / inodeNumInodesPerSector();
-    unsigned int freeSpaceSize   = (diskGetSize(disk) / blockSize) / (sizeof(unsigned char) * 8 * DISK_SECTORDATASIZE);
-
+    unsigned int freeSpaceSize = (diskGetSize(disk) / blockSize) / (sizeof(unsigned char) * 8 * DISK_SECTORDATASIZE);
     ul2char(freeSpaceSector, &super[SUPER_FREE_SPACE_SECTOR]);
-
     unsigned int firstBlockSector = freeSpaceSector + freeSpaceSize;
-    unsigned int numBlocks        = (diskGetNumSectors(disk) - firstBlockSector) / (blockSize / DISK_SECTORDATASIZE);
-
+    unsigned int numBlocks = (diskGetNumSectors(disk) - firstBlockSector) / (blockSize / DISK_SECTORDATASIZE);
     ul2char(firstBlockSector, &super[SUPER_FIRST_BLOCK_SECTOR]);
     ul2char(numBlocks, &super[SUPER_NUM_BLOCKS]);
 
-    if(diskWriteSector(disk, 0, super) == -1 )
+    if (diskWriteSector(disk, 0, super) == -1)
         return -1;
 
-    for(int i=0; i < freeSpaceSize; i++) {
-
-        if(diskWriteSector(disk, freeSpaceSector + i, freeSpace) == -1)
+    for (int i = 0; i < freeSpaceSize; i++) {
+        if (diskWriteSector(disk, freeSpaceSector + i, freeSpace) == -1)
             return -1;
 
     }
-
-    return numBlocks > 0 ? numBlocks : -1;
+    if (numBlocks > 0)
+        return numBlocks;
+    else return -1;
 }
 
-int openFile (Disk *disk, const char *path) {
+int openFile(Disk *disk, const char *path) {
     //TODO implementar openFile
 
     return -1;
 }
 
-int readFile (int fd, char *buf, unsigned int nbytes) {
-    //TODO implementar readFile
+int readFile(int fd, char *buf, unsigned int nbytes) {
+    if (fd <= 0 || fd > MAX_FDS)
+        return -1;
+    File *file = openFiles[fd];
+    if (!file) return -1;
 
-    return -1;
+
+    unsigned int bytesRead = 0;
+    unsigned int fileSize = inodeGetFileSize(file->inode);
+    unsigned int currentInode = file->currentByte / file->diskBlockSize;
+    unsigned int offsetInode = file->currentByte % file->diskBlockSize;
+    unsigned int currentBlock = inodeGetBlockAddr(file->inode, currentInode);
+    unsigned char diskBuffer[DISK_SECTORDATASIZE];
+
+    while (bytesRead + file->currentByte < fileSize && bytesRead < nbytes && currentBlock > 0) {
+        unsigned int sectorsPerBlock = file->diskBlockSize / DISK_SECTORDATASIZE;
+        unsigned int firstSector = offsetInode / DISK_SECTORDATASIZE;
+        unsigned int firstByte = offsetInode % DISK_SECTORDATASIZE;
+
+        for (int i = firstSector; i < sectorsPerBlock && bytesRead < nbytes; i++) {
+            if (diskReadSector(file->disk, currentBlock + i, diskBuffer) == -1)
+                return -1;
+
+            for (int j = firstByte;
+                 j < DISK_SECTORDATASIZE && bytesRead < nbytes && bytesRead + file->currentByte < fileSize; j++) {
+                buf[bytesRead] = diskBuffer[j];
+                bytesRead++;
+            }
+            firstByte = 0;
+        }
+
+        offsetInode = 0;
+        currentInode++;
+        currentBlock = inodeGetBlockAddr(file->inode, currentInode);
+    }
+
+    file->currentByte += bytesRead;
+    return bytesRead;
 }
 
-int writeFile (int fd, const char *buf, unsigned int nbytes) {
+int writeFile(int fd, const char *buf, unsigned int nbytes) {
     //TODO implementar writeFile
 
     return -1;
 }
 
-int closeFile (int fd) {
-    if(fd <= 0 || fd > MAX_FDS)
+int closeFile(int fd) {
+    if (fd <= 0 || fd > MAX_FDS)
         return -1;
 
     File *file = openFiles[fd];
     if (!file)
         return -1;
 
-    openFiles[fd-1] = NULL;
+    openFiles[fd - 1] = NULL;
     free(file->inode);
     free(file);
 
     return 0;
 }
 
-int openDir (Disk *disk, const char *path) {
+int openDir(Disk *disk, const char *path) {
     //TODO implementar openDir
 
     return -1;
 }
 
-int readDir (int fd, char *filename, unsigned int *inumber) {
-    //TODO implementar readDir
+int readDir(int fd, char *filename, unsigned int *inumber) {
 
-    return -1;
+    if (fd <= 0 || fd > MAX_FDS)
+        return -1;
+    File *file = openFiles[fd];
+
+    if (!file || inodeGetFileType(file->inode) != FILETYPE_DIR)
+        return -1;
+
+    Directory directory;
+    int bytesRead = myfsRead(fd, (char *) &directory, sizeof(Directory));
+
+    if (bytesRead == -1)
+        return -1;
+    if (bytesRead < sizeof(Directory))
+        return 0;
+
+    strcpy(filename, directory.filename);
+    *inumber = directory.inumber;
+
+    return 1;
 }
 
-int link (int fd, const char *filename, unsigned int inumber) {
+int link(int fd, const char *filename, unsigned int inumber) {
     //TODO implementar link
 
     return -1;
 }
 
-int unlink (int fd, const char *filename) {
+int unlink(int fd, const char *filename) {
     //TODO implementar unlink
 
     return -1;
 }
 
-int closeDir (int fd) {
+int closeDir(int fd) {
     //TODO implementar closeDir
 
     return -1;
