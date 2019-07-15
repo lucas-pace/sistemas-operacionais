@@ -210,15 +210,103 @@ int readDir(int fd, char *filename, unsigned int *inumber) {
 }
 
 int link(int fd, const char *filename, unsigned int inumber) {
-    //TODO implementar link
+    if (fd <= 0 || fd > MAX_FDS)
+        return -1;
+    File *file = openFiles[fd];
 
-    return -1;
+    if (!file || inodeGetFileType(file->inode) != FILETYPE_DIR)
+        return -1;
+    
+    Inode* inodeLink = inodeLoad(inumber, dir->disk);
+    if(!inodeLink)
+        return -1;
+
+    Directory directory;
+    strcpy(directory.filename, filename);
+    directory.inumber = inumber;
+    unsigned int previousCurrentByte = dir->currentByte;
+    unsigned int previousDirSize = inodeGetFileSize(dir->inode);
+    dir->currentByte = previousDirSize;
+    int bytesWritten = myfsWrite(fd, (const char*) &directory, sizeof(Directory));
+    dir->currentByte = previousCurrentByte;
+
+    if(bytesWritten != sizeof(Directory))
+    {
+        inodeSetFileSize(dir->inode, previousDirSize);
+        inodeSave(dir->inode);
+        free(inodeLink);
+        return -1;
+    }
+
+    inodeSetRefCount(inodeLink, inodeGetRefCount(inodeLink) + 1);
+    inodeSave(inodeLink);
+    free(inodeLink);
+    return 0;
 }
 
-int unlink(int fd, const char *filename) {
-    //TODO implementar unlink
+int unlink(int fd, const char *filename)
+    if (fd <= 0 || fd > MAX_FDS)
+        return -1;
+    File *file = openFiles[fd];
 
-    return -1;
+    if (!file || inodeGetFileType(file->inode) != FILETYPE_DIR)
+        return -1;
+
+    unsigned int previousCurrentByte = dir->currentByte;
+    dir->currentByte = 0;
+    Directory directory;
+    unsigned int inumber = 0;
+    while(myfsRead(fd, (char*) &directory, sizeof(Directory)) == sizeof(Directory))
+    {
+        if(strcmp(directory.filename, filename) == 0)
+        {
+            inumber = directory.inumber;
+            unsigned int currentByte = dir->currentByte;
+            unsigned int nextByte = dir->currentByte + sizeof(Directory);
+            dir->currentByte = nextByte;
+            while(myfsRead(fd, (char*) &directory, sizeof(Directory)) == sizeof(Directory))
+            {
+                dir->currentByte = currentByte;
+                myfsWrite(fd, (char*) &directory, sizeof(Directory));
+                currentByte += sizeof(Directory);
+                nextByte += sizeof(Directory);
+                dir->currentByte = nextByte;
+            }
+
+            unsigned int previousDirSize = inodeGetFileSize(dir->inode);
+            inodeSetFileSize(dir->inode, previousDirSize - sizeof(Directory));
+            break;
+        }
+    }
+
+    dir->currentByte = previousCurrentByte;
+    if(inumber == 0) 
+        return -1;
+
+    Inode* inodeUnlink = inodeLoad(inumber, dir->disk);
+    if(inodeUnlink == NULL)
+        return -1;
+
+    unsigned int previousRefCount = inodeGetRefCount(inodeUnlink);
+    inodeSetRefCount(inodeUnlink, previousRefCount - 1);
+
+    if(previousRefCount == 1)
+    {
+        unsigned int blockCount = 0;
+        unsigned int currentBlock = inodeGetBlockAddr(inodeUnlink, blockCount);
+
+        while (currentBlock > 0)
+        {
+            __setBlockFree(dir->disk, currentBlock);
+            blockCount++;
+            currentBlock = inodeGetBlockAddr(inodeUnlink, blockCount);
+        }
+
+        inodeClear(inodeUnlink);
+    }
+    inodeSave(inodeUnlink);
+    free(inodeUnlink);
+    return 0;
 }
 
 int closeDir(int fd) {
