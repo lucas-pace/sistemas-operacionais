@@ -1,7 +1,7 @@
 /*
 *  myfs.c - Implementacao de funcoes do sistema de arquivos
 *
-*  Autores: Lucas de Pace, André Caetano e Cristiano Nascimento
+*  Autores: André Caetano, Cristiano Nascimento e Lucas de Pace
 *  Projeto: Trabalho Pratico II - Sistemas Operacionais
 *  Organizacao: Universidade Federal de Juiz de Fora
 *  Departamento: Dep. Ciencia da Computacao
@@ -52,16 +52,13 @@ struct file {
     unsigned int lastByteRead;
 };
 
-struct file {
-    Disk *disk;
-    Inode *inode;
-    unsigned int blockSize;
-    unsigned int lastByteRead;
+struct directory {
+    char dirPath[MAX_FILENAME_LENGTH + 1];
+    int numInode;
 };
 
-
-
 File *openFiles[MAX_FDS] = {};
+Directory *filesPaths[MAX_FDS] = {};
 
 int installMyFS() {
     myfsSlot = vfsRegisterFS(&myfsInfo);
@@ -84,6 +81,8 @@ int formatDisk(Disk *disk, unsigned int blockSize) {
     unsigned char freeSpace[DISK_SECTORDATASIZE] = {0};
     ul2char(blockSize, &super[SUPER_BLOCKSIZE]);
     unsigned int numInodes = diskGetSize(disk) / blockSize / 8;
+
+    contInodes = numInodes; //inicializa o valor do contador de inodes disponível
 
     for (int i = 1; i <= numInodes; i++) {
         Inode *inode = inodeCreate(i, disk);
@@ -114,9 +113,82 @@ int formatDisk(Disk *disk, unsigned int blockSize) {
 }
 
 int openFile(Disk *disk, const char *path) {
-    //TODO implementar openFile
+    int idDir, boolInt, n, ultValor, numInode, auxCont = 0, free_fd = -1;
+    unsigned char pathofDir [MAX_FILENAME_LENGTH + 1];
+    int usedInodesNum[MAX_FDS] = {0};
 
-    return -1;
+    for(int i=0;i<MAX_FDS;i++) {
+        Directory *directory = filesPaths[i];
+        if(directory != NULL ) {
+            if(directory->dirPath == path) {
+                if (openFiles[i]==NULL) {
+                    openFiles[i]->disk = disk;
+                    openFiles[i]->inode = inodeLoad(directory->numInode,disk);
+                }
+                return i;
+            }
+            else {
+                usedInodesNum[auxCont] = directory->numInode;
+                auxCont++;
+                contInodes--;
+            }
+        }
+        else {
+            if(free_fd == -1)
+                free_fd = i;
+        }
+
+    }
+    if(contInodes == 0) {
+        return -1;
+    }
+    for(int i = 1; i <= auxCont; i++) {
+        boolInt = 1;
+        for(int j=0;j<auxCont;j++) {
+            if (usedInodesNum[j]==i) {
+                boolInt = 0;
+            }
+        }
+        if(boolInt) {
+            numInode = i;
+            break;
+        }
+    }
+
+    Inode* inode = inodeCreate(numInode,disk);
+    inodeSetFileType(inode,FILETYPE_REGULAR);
+    if(inodeSave(inode)!=0) {
+        return -1;
+    }
+    for(int i=0;path[i] != '\0';i++) {
+        n = i-1;
+    }
+    for(int i=n;i>=0;i--) {
+        if(path[i]=='/' && i!=0) {
+            for(int j=0;j>=i-1;j++) {
+                pathofDir[j]=path[j];
+                if((j+1)>=i-1) {
+                    ultValor = j;
+                }
+            }
+            pathofDir[ultValor]='\0';
+            idDir = openDir(disk,pathofDir);
+            if(idDir>-1) {
+                link(idDir,path,numInode);
+            }
+            else {
+                return -1;
+            }
+        }
+    }
+    // TODO setar ref count se o arquivo estiver sendo construido na raiz
+    filesPaths[free_fd]->dirPath = *path;
+    filesPaths[free_fd]->numInode = numInode;
+    //openFiles[free_fd]->currentByte  =; TODO
+    openFiles[free_fd]->disk = disk;
+    //openFiles[free_fd]->diskBlockSize =; TODO
+    openFiles[free_fd]->inode = inodeLoad(numInode,disk);
+    return free_fd;
 }
 
 int readFile(int fd, char *buf, unsigned int nbytes) {
@@ -203,8 +275,8 @@ int readDir(int fd, char *filename, unsigned int *inumber) {
     if (bytesRead < sizeof(Directory))
         return 0;
 
-    strcpy(filename, directory.filename);
-    *inumber = directory.inumber;
+    strcpy(filename, directory.dirPath);
+    *inumber = directory.numInode;
 
     return 1;
 }
@@ -222,8 +294,8 @@ int link(int fd, const char *filename, unsigned int inumber) {
         return -1;
 
     Directory directory;
-    strcpy(directory.filename, filename);
-    directory.inumber = inumber;
+    strcpy(directory.dirPath, filename);
+    directory.numInode = inumber;
     unsigned int previousCurrentByte = dir->currentByte;
     unsigned int previousDirSize = inodeGetFileSize(dir->inode);
     dir->currentByte = previousDirSize;
@@ -258,9 +330,9 @@ int unlink(int fd, const char *filename)
     unsigned int inumber = 0;
     while(myfsRead(fd, (char*) &directory, sizeof(Directory)) == sizeof(Directory))
     {
-        if(strcmp(directory.filename, filename) == 0)
+        if(strcmp(directory.dirPath, dirPath) == 0)
         {
-            inumber = directory.inumber;
+            inumber = directory.numInode;
             unsigned int currentByte = dir->currentByte;
             unsigned int nextByte = dir->currentByte + sizeof(Directory);
             dir->currentByte = nextByte;

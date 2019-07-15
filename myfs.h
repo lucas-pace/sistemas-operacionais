@@ -19,6 +19,8 @@ typedef struct file File;
 
 typedef struct directory Directory;
 
+int contInodes; //armazena a quantidade de Inodes disponível
+
 //Funcao para instalar um novo sistema de arquivos no S.O.
 int installMyFS ( void );
 
