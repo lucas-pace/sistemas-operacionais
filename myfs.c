@@ -6,7 +6,7 @@
 *  Organizacao: Universidade Federal de Juiz de Fora
 *  Departamento: Dep. Ciencia da Computacao
 *
-*  
+*
 */
 
 #include <stdlib.h>
@@ -14,6 +14,18 @@
 #include "myfs.h"
 #include "disk.h"
 #include "vfs.h"
+#include "util.h"
+
+/**
+ O superbloco é essencialmente um metadado do sistema de arquivos e define o tipo, tamanho, status e informações do sistema de arquivos sobre
+ outras estruturas de metadados (metadados de metadados). O superbloco é muito crítico para o sistema de arquivos e, portanto, é armazenado
+ em várias cópias redundantes para cada sistema de arquivos. O superbloco é uma estrutura de metadados muito "de alto nível" para o
+ sistema de arquivos.
+ **/
+#define SUPER_NUM_BLOCKS (3 * sizeof(unsigned int) + sizeof(char))
+#define SUPER_BLOCKSIZE 0
+#define SUPER_FREE_SPACE_SECTOR (sizeof(unsigned int) + sizeof(char))
+#define SUPER_FIRST_BLOCK_SECTOR (2 * sizeof(unsigned int) + sizeof(char))
 
 int myfsSlot = -1;
 
@@ -60,8 +72,44 @@ int myfsIsIdle (Disk *disk) {
 
 int formatDisk (Disk *disk, unsigned int blockSize) {
     //TODO implementar formatDisk
+    unsigned char super[DISK_SECTORDATASIZE] = {0};
+    unsigned char freeSpace[DISK_SECTORDATASIZE] = {0};
 
-    return -1;
+    ul2char(blockSize, &super[SUPER_BLOCKSIZE]);
+
+    unsigned int numInodes = (diskGetSize(disk) / blockSize) / 8;
+
+    for(int i=1; i <= numInodes; i++) {
+
+        Inode* inode = inodeCreate(i, disk);
+        if(!inode)
+            return -1;
+        free(inode);
+
+    }
+
+    unsigned int freeSpaceSector = inodeAreaBeginSector() + numInodes / inodeNumInodesPerSector();
+    unsigned int freeSpaceSize   = (diskGetSize(disk) / blockSize) / (sizeof(unsigned char) * 8 * DISK_SECTORDATASIZE);
+
+    ul2char(freeSpaceSector, &super[SUPER_FREE_SPACE_SECTOR]);
+
+    unsigned int firstBlockSector = freeSpaceSector + freeSpaceSize;
+    unsigned int numBlocks        = (diskGetNumSectors(disk) - firstBlockSector) / (blockSize / DISK_SECTORDATASIZE);
+
+    ul2char(firstBlockSector, &super[SUPER_FIRST_BLOCK_SECTOR]);
+    ul2char(numBlocks, &super[SUPER_NUM_BLOCKS]);
+
+    if(diskWriteSector(disk, 0, super) == -1 )
+        return -1;
+
+    for(int i=0; i < freeSpaceSize; i++) {
+
+        if(diskWriteSector(disk, freeSpaceSector + i, freeSpace) == -1)
+            return -1;
+
+    }
+
+    return numBlocks > 0 ? numBlocks : -1;
 }
 
 int openFile (Disk *disk, const char *path) {
