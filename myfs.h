@@ -17,7 +17,7 @@
 
 typedef struct file File;
 
-typedef struct directory Directory;
+typedef struct directory DirectoryEntry;
 
 int contInodes; //armazena a quantidade de Inodes disponível
 
