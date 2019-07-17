@@ -1,7 +1,7 @@
 /*
 *  myfs.c - Implementacao de funcoes do sistema de arquivos
 *
-*  Autores: André Caetano, Cristiano Nascimento e Lucas de Pace
+*  Autores: Andre Caetano, Cristiano Nascimento e Lucas de Pace
 *  Projeto: Trabalho Pratico II - Sistemas Operacionais
 *  Organizacao: Universidade Federal de Juiz de Fora
 *  Departamento: Dep. Ciencia da Computacao
@@ -18,9 +18,9 @@
 #include "util.h"
 
 /**
- O superbloco é essencialmente um metadado do sistema de arquivos e define o tipo, tamanho, status e informações do sistema de arquivos sobre
- outras estruturas de metadados (metadados de metadados). O superbloco é muito crítico para o sistema de arquivos e, portanto, é armazenado
- em várias cópias redundantes para cada sistema de arquivos. O superbloco é uma estrutura de metadados muito "de alto nível" para o
+ O superbloco eh essencialmente um metadado do sistema de arquivos e define o tipo, tamanho, status e informacoes do sistema de arquivos sobre
+ outras estruturas de metadados (metadados de metadados). O superbloco eh muito critico para o sistema de arquivos e, portanto, eh armazenado
+ em varias copias redundantes para cada sistema de arquivos. O superbloco eh uma estrutura de metadados muito "de alto nivel" para o
  sistema de arquivos.
  **/
 #define SUPER_NUM_BLOCKS (3 * sizeof(unsigned int) + sizeof(char))
@@ -51,6 +51,7 @@ struct file {
     Inode *inode;
     unsigned int blockSize;
     unsigned int lastByteRead;
+    const char* path;
 };
 
 struct directory {
@@ -215,6 +216,22 @@ int formatDisk(Disk *disk, unsigned int blockSize) {
 }
 
 int openFile(Disk *disk, const char *path) {
+    //TODO terminar de implementar openFile, método esta apenas criando o arquivo
+    File *file = malloc(sizeof(File));
+    file->disk = disk;
+    file->path = path;
+
+    int numInode = inodeFindFreeInode(1, disk);
+    Inode *inode = inodeCreate(numInode, disk);
+    file->inode = inode;
+
+    for (int i = 0; i < MAX_FDS; i++) {
+        if (!openFiles[i]) {
+            openFiles[i] = file;
+            return i;
+        }
+    }
+
     return -1;
 }
 
@@ -337,6 +354,7 @@ int closeFile(int fd) {
 }
 
 int openDir(Disk *disk, const char *path) {
+    //TODO implementar openDir
     return -1;
 }
 
@@ -467,5 +485,6 @@ int unlink(int fd, const char *filename) {
 }
 
 int closeDir(int fd) {
+    //TODO implementar closeDir
     return -1;
 }
